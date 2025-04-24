@@ -1,65 +1,63 @@
-# RoiBaView
-Welcome to the <i>Cell Detection Suite</i>.
-A simple GUI wrapped around CAIMAN for easy motion correction and cell detection.
+# Caiman Installation & GUI Setup Guide
 
-## Installation
-1. Get Miniforge or something similar:
+This guide walks you through setting up **Caiman**, installing dependencies, and launching the Cell Detection Suite GUI.
 
-https://github.com/conda-forge/miniforge
-See "Install" there.
+---
 
-2. Create a new environment and install CAIMAN(e.g. in Anaconda)
-See also: 
-https://caiman.readthedocs.io/en/latest/Installation.html
-https://github.com/flatironinstitute/CaImAn
+## Step 1: Install Demos and Models
 
-Open miniforge terminal (or whatever you have) and create a new environment and install caiman.
-(it will look in channel conda-forge and anaconda for caiman)
+Once your environment is set up, run the following command to install Caiman demos and models:
 
-```shell
-mamba create -n caiman -c conda-forge -c anaconda caiman 
-```
-or
-```shell
-conda create -n caiman -c conda-forge -c anaconda caiman 
-```
-
-This will take some time to download and install.
-After that you need to install some demos and models:
-
-```shell
+```bash
 caimanmanager install
 ```
-If this is done, caiman should be installed successfully.
 
-4. Install some additional stuff
-We need some more packages:
+If this completes successfully, **Caiman is now installed!**
 
-```shell
+---
+
+## Step 2: Install Additional Packages
+
+Some additional packages are required. Choose **one** of the following methods:
+
+### Option A – Using conda:
+```bash
 conda install PyYAML tifffile
 ```
-or
-```shell
+
+### Option B – Using pip:
+```bash
 conda install pip
 pip install PyYAML tifffile
 ```
 
-5. Cell Detection Suite GUI
-Save the "run_caiman.py" and "caiman_settings.yaml" to your disk.
-Open a terminal (miniforge) and go to the directory containing that two files.
+---
 
-```shell
+## Step 3: Launch the Cell Detection Suite GUI
+
+1. **Download** the following files to a directory on your system:
+   - `run_caiman.py`
+   - `caiman_settings.yaml`
+
+2. **Navigate** to the folder containing the files (replace the path below with your actual path):
+
+```bash
 cd C:/path/to/files/
 ```
 
-Now run the python file
-```shell
+3. **Run the GUI** with:
+
+```bash
 python run_caiman.py
 ```
-This should start the GUI. It can take some time until it shows, since it first has to import caiman.
 
-The Caiman Settings are stored in "caiman_settings.yaml" and must always be in the same directory as the python file!
+**Note:** The GUI might take a moment to launch while it loads Caiman.
 
+**Important:**  
+The file `caiman_settings.yaml` must **always** be in the **same directory** as `run_caiman.py`.
 
-### ----------
-Nils Brehm - 2025
+---
+
+### Author
+
+Nils Brehm – 2025
