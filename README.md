@@ -36,6 +36,12 @@ conda create -n caiman -c conda-forge -c anaconda caiman
 
 This will take some time to download and install.
 
+Than activate your new env:
+
+```bash
+conda activate caiman
+```
+
 ---
 
 ### 3. Install Demos and Models
