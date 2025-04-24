@@ -5,14 +5,12 @@ import os
 import tifffile as tiff
 import time
 import yaml
-import read_roi
-from matplotlib.path import Path
+
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
 
 # CAIMAN IMPORTS
-from caiman.source_extraction.cnmf.cnmf import load_CNMF
 from caiman import load, load_memmap, stop_server, load_movie_chain, concatenate
 from caiman.cluster import setup_cluster
 from caiman.motion_correction import MotionCorrect
@@ -345,103 +343,6 @@ def motion_correction(file_name, pw_rigid, output_path, display_images=False):
     stop_server(dview=dview)
 
 
-def view_caiman_results(sw_dir, save_accepted=True, view_components=True):
-    file_dir = f'{sw_dir}/caiman_output/cnmf_full_pipeline_results.hdf5'
-    tif_file_dir = f'{sw_dir}/rec/'
-    tif_file = f'{tif_file_dir}/{os.listdir(tif_file_dir)[0]}'
-    neuropil_roi_dir = f'{sw_dir}/neuropil.roi'
-
-    # Load Data
-    cnm = load_CNMF(file_dir)
-    tif_rec = load_tiff_recording(tif_file, flatten=True)
-    try:
-        neuropil_roi = read_roi.read_roi_file(neuropil_roi_dir)
-    except FileNotFoundError:
-        print(f'ERROR in {sw_dir}')
-        print('COULD NOT FINED IMAGEJ ROI FILE')
-        return
-
-    mean_image = np.mean(tif_rec, axis=0)
-
-    idx_components = cnm.estimates.idx_components
-    component_centers = cnm.estimates.center[idx_components]
-    df_centers = pd.DataFrame(component_centers, columns=["y", "x"])  # CaImAn uses (row, col)
-
-    # Neuropil detection
-    # --- 1. Load and parse neuropil ROI polygon ---
-    neuropil = neuropil_roi['neuropil']
-    polygon_x = np.array(neuropil['x'])
-    polygon_y = np.array(neuropil['y'])
-    polygon_vertices = np.column_stack((polygon_x, polygon_y))
-    neuropil_path = Path(polygon_vertices)
-
-    # --- 2. Convert CaImAn (y, x) component centers to (x, y) for polygon check ---
-    component_xy = df_centers[["x", "y"]].values  # Now in (x, y)
-
-    # --- 3. Check which components are inside the neuropil polygon ---
-    inside_mask = neuropil_path.contains_points(component_xy)
-
-    # --- 4. Create a DataFrame with the result ---
-    df_centers["inside_neuropil"] = inside_mask
-
-    # Optional: Filter just inside or outside
-    df_inside = df_centers[df_centers["inside_neuropil"]]
-    df_outside = df_centers[~df_centers["inside_neuropil"]]
-
-    if save_accepted:
-        # --- Plot setup ---
-        plt.ioff()  # Turn off interactive mode
-        fig, ax = plt.subplots(figsize=(10, 10))
-        ax.imshow(mean_image, cmap='gray', origin='upper')  # Show the mean image
-
-        # --- Plot neuropil ROI polygon outline ---
-        ax.plot(neuropil['x'] + [neuropil['x'][0]],  # x becomes col
-                neuropil['y'] + [neuropil['y'][0]],  # y becomes row
-                linestyle='--', color='cyan', linewidth=2, label='Neuropil ROI')
-
-        # --- Plot component centers ---
-        # Flip x and y back for plotting (since image is row=y, col=x)
-        ax.scatter(df_inside["x"], df_inside["y"], c='lime', s=20, label='Inside Neuropil', alpha=0.7)
-        ax.scatter(df_outside["x"], df_outside["y"], c='red', s=20, label='Outside Neuropil', alpha=0.7)
-
-        # --- Labels and legend ---
-        ax.set_title("Component Centers Overlaid on Mean Image", fontsize=14)
-        ax.legend(loc='upper right')
-        ax.axis('off')
-
-        plt.tight_layout()
-        plt.savefig(f'{sw_dir}/caiman_output/neuropil_detection.jpg', dpi=300)
-        plt.close(fig)
-
-        # Get accepted components
-        # A_accepted = cnm.estimates.A[:, idx_components]
-        C_accepted = cnm.estimates.C[idx_components]
-
-        # Separate traces
-        C_inside = C_accepted[inside_mask, :]  # Traces for components inside neuropil
-        C_outside = C_accepted[~inside_mask, :]  # Traces for components outside neuropil
-
-        # pd.DataFrame(C_accepted.T).to_csv(f"{sw_dir}/caiman_output/accepted_caiman_ca_traces.csv", index=False)
-        pd.DataFrame(C_inside.T).to_csv(f"{sw_dir}/caiman_output/neuropil_caiman_ca_traces.csv", index=False)
-        pd.DataFrame(C_outside.T).to_csv(f"{sw_dir}/caiman_output/cells_caiman_ca_traces.csv", index=False)
-
-        # Export component centers (x, y)
-        df_centers_inside = pd.DataFrame(component_centers[inside_mask, :], columns=["y", "x"])
-        df_centers_outside = pd.DataFrame(component_centers[~inside_mask, :], columns=["y", "x"])
-        df_centers_inside.to_csv(f'{sw_dir}/caiman_output/neuropil_caiman_roi_centers.csv', index=False)
-        df_centers_outside .to_csv(f'{sw_dir}/caiman_output/cells_caiman_roi_centers.csv', index=False)
-
-        print('\n==== STORED ACCEPTED ROI DATA TO DISK =====\n')
-
-    if view_components:
-        # View components (accepted)
-        print('\n To view components enter: \n')
-        print('"c_viewer(cnm, tif_rec, mean_image)"\n')
-        embed()
-        exit()
-        c_viewer(cnm, tif_rec, mean_image)
-
-
 def c_viewer(cnm, tif_rec, mean_image):
     cnm.estimates.view_components(tif_rec, idx=cnm.estimates.idx_components, img=mean_image)
 
@@ -507,12 +408,19 @@ def main():
             return
 
         # Get Settings File
-        settings_dir = open_file(text='Select Settings File', f_types=[("settings file", "*.yaml")], change_label=False)
-        if not selected_file:
-            messagebox.showwarning("No file", "Please select a file first.")
+        # settings_dir = open_file(text='Select Settings File', f_types=[("settings file", "*.yaml")], change_label=False)
+        # if not selected_file:
+        #     messagebox.showwarning("No file", "Please select a file first.")
+        #     return
+
+        settings_dir = 'caiman_settings.yaml'
+        try:
+            with open(settings_dir, 'r') as f:
+                params_dict = yaml.safe_load(f)
+        except FileNotFoundError:
+            print('ERROR COULD NOT FIND SETTINGS FILE')
+            messagebox.showwarning("No Settings File", "ERROR: COULD NOT FIND SETTINGS FILE")
             return
-        with open(settings_dir, 'r') as f:
-            params_dict = yaml.safe_load(f)
 
         # Disable buttons and show status
         freeze_gui(freeze=True, status_text='Running Motion Correction, please wait ....')
