@@ -347,6 +347,96 @@ def c_viewer(cnm, tif_rec, mean_image):
     cnm.estimates.view_components(tif_rec, idx=cnm.estimates.idx_components, img=mean_image)
 
 
+def detect_neuropil_rois(file_dir, tif_file, neuropil_roi_dir, output_dir):
+    from caiman.source_extraction.cnmf.cnmf import load_CNMF
+    import read_roi
+    from matplotlib.path import Path
+
+    # file_dir = f'{sw_dir}/caiman_output/cnmf_full_pipeline_results.hdf5'
+    # tif_file_dir = f'{sw_dir}/rec/'
+    # tif_file = f'{tif_file_dir}/{os.listdir(tif_file_dir)[0]}'
+    # neuropil_roi_dir = f'{sw_dir}/neuropil.roi'
+
+    # Load Data
+    cnm = load_CNMF(file_dir)
+    tif_rec = load_tiff_recording(tif_file, flatten=True)
+    try:
+        neuropil_roi = read_roi.read_roi_file(neuropil_roi_dir)
+    except FileNotFoundError:
+        print(f'ERROR in {sw_dir}')
+        print('COULD NOT FINED IMAGEJ ROI FILE')
+        return
+
+    mean_image = np.mean(tif_rec, axis=0)
+
+    idx_components = cnm.estimates.idx_components
+    component_centers = cnm.estimates.center[idx_components]
+    df_centers = pd.DataFrame(component_centers, columns=["y", "x"])  # CaImAn uses (row, col)
+
+    # Neuropil detection
+    # --- 1. Load and parse neuropil ROI polygon ---
+    neuropil = neuropil_roi['neuropil']
+    polygon_x = np.array(neuropil['x'])
+    polygon_y = np.array(neuropil['y'])
+    polygon_vertices = np.column_stack((polygon_x, polygon_y))
+    neuropil_path = Path(polygon_vertices)
+
+    # --- 2. Convert CaImAn (y, x) component centers to (x, y) for polygon check ---
+    component_xy = df_centers[["x", "y"]].values  # Now in (x, y)
+
+    # --- 3. Check which components are inside the neuropil polygon ---
+    inside_mask = neuropil_path.contains_points(component_xy)
+
+    # --- 4. Create a DataFrame with the result ---
+    df_centers["inside_neuropil"] = inside_mask
+
+    # Optional: Filter just inside or outside
+    df_inside = df_centers[df_centers["inside_neuropil"]]
+    df_outside = df_centers[~df_centers["inside_neuropil"]]
+
+    # --- Plot setup ---
+    plt.ioff()  # Turn off interactive mode
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.imshow(mean_image, cmap='gray', origin='upper')  # Show the mean image
+
+    # --- Plot neuropil ROI polygon outline ---
+    ax.plot(neuropil['x'] + [neuropil['x'][0]],  # x becomes col
+            neuropil['y'] + [neuropil['y'][0]],  # y becomes row
+            linestyle='--', color='cyan', linewidth=2, label='Neuropil ROI')
+
+    # --- Plot component centers ---
+    # Flip x and y back for plotting (since image is row=y, col=x)
+    ax.scatter(df_inside["x"], df_inside["y"], c='lime', s=20, label='Inside Neuropil', alpha=0.7)
+    ax.scatter(df_outside["x"], df_outside["y"], c='red', s=20, label='Outside Neuropil', alpha=0.7)
+
+    # --- Labels and legend ---
+    ax.set_title("Component Centers Overlaid on Mean Image", fontsize=14)
+    ax.legend(loc='upper right')
+    ax.axis('off')
+
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/neuropil_detection.jpg', dpi=300)
+    plt.close(fig)
+
+    # Get accepted components
+    # A_accepted = cnm.estimates.A[:, idx_components]
+    C_accepted = cnm.estimates.C[idx_components]
+
+    # Separate traces
+    C_inside = C_accepted[inside_mask, :]  # Traces for components inside neuropil
+    C_outside = C_accepted[~inside_mask, :]  # Traces for components outside neuropil
+
+    # pd.DataFrame(C_accepted.T).to_csv(f"{sw_dir}/caiman_output/accepted_caiman_ca_traces.csv", index=False)
+    pd.DataFrame(C_inside.T).to_csv(f"{output_dir}/neuropil_caiman_ca_traces.csv", index=False)
+    pd.DataFrame(C_outside.T).to_csv(f"{output_dir}/cells_caiman_ca_traces.csv", index=False)
+
+    # Export component centers (x, y)
+    df_centers_inside = pd.DataFrame(component_centers[inside_mask, :], columns=["y", "x"])
+    df_centers_outside = pd.DataFrame(component_centers[~inside_mask, :], columns=["y", "x"])
+    df_centers_inside.to_csv(f'{output_dir}/neuropil_caiman_roi_centers.csv', index=False)
+    df_centers_outside .to_csv(f'{output_dir}/cells_caiman_roi_centers.csv', index=False)
+
+
 def main():
     # selected_file = ""
     file_label = None  # Declare it here so it’s visible in nested functions
@@ -358,16 +448,17 @@ def main():
             # open_button.config(state="disabled")
             run_motion_correction_button.config(state="disabled")
             run_source_extraction_button.config(state="disabled")
+            neuropil_button.config(state="disabled")
             status_label.config(text=status_text)
         else:
             # Re-enable and show complete
             # open_button.config(state="normal")
             run_motion_correction_button.config(state="normal")
             run_source_extraction_button.config(state="normal")
+            neuropil_button.config(state="normal")
             status_label.config(text=status_text)
             root.update_idletasks()  # Ensure it's redrawn
             messagebox.showinfo("Analysis", f"Finished!")
-
 
     def open_file(text, f_types, change_label=True):
         # f_types = [("Text files", "*.txt"), ("All files", "*.*")]
@@ -407,12 +498,6 @@ def main():
             messagebox.showwarning("No file", "Please select a file first.")
             return
 
-        # Get Settings File
-        # settings_dir = open_file(text='Select Settings File', f_types=[("settings file", "*.yaml")], change_label=False)
-        # if not selected_file:
-        #     messagebox.showwarning("No file", "Please select a file first.")
-        #     return
-
         settings_dir = 'caiman_settings.yaml'
         try:
             with open(settings_dir, 'r') as f:
@@ -423,12 +508,12 @@ def main():
             return
 
         # Disable buttons and show status
-        freeze_gui(freeze=True, status_text='Running Motion Correction, please wait ....')
+        freeze_gui(freeze=True, status_text='Running Cell Detection, please wait ....')
         root.update_idletasks()  # <- Force update to apply the GUI changes immediately
         time.sleep(0.1)  # Just for testing
 
         # messagebox.showinfo("Analysis", f"Analysis started on:\n{selected_file}")
-        output_folder= f'{os.path.split(selected_file)[0]}/caiman_output'
+        output_folder = f'{os.path.split(selected_file)[0]}/caiman_output'
         os.makedirs(output_folder, exist_ok=True)
 
         corr_map = checkbox_var.get()
@@ -437,12 +522,36 @@ def main():
         # Re-enable and show complete
         freeze_gui(freeze=False, status_text='Finished Cell Detection and stored data to disk!')
 
+    def run_neuropil():
+        tif_file = open_file(text='Select Recording File', f_types=[("tif files", "*.tif *.tiff *.TIF *.TIFF")])
+        if not tif_file:
+            messagebox.showwarning("No file", "Please select a file first.")
+            return
+
+        caiman_file = open_file(text='Select CAIMAN File', f_types=[("caiman files", "*.hdf5")])
+        if not caiman_file:
+            messagebox.showwarning("No file", "Please select a file first.")
+            return
+
+        roi_file = open_file(text='Select ROI File', f_types=[("roi files", "*.roi")])
+        if not roi_file:
+            messagebox.showwarning("No file", "Please select a file first.")
+            return
+
+        # Disable buttons and show status
+        freeze_gui(freeze=True, status_text='Running Neuropil Detection, please wait ....')
+        root.update_idletasks()  # <- Force update to apply the GUI changes immediately
+        time.sleep(0.1)  # Just for testing
+
+        output_folder = f'{os.path.split(tif_file)[0]}/caiman_output'
+        detect_neuropil_rois(file_dir=caiman_file, tif_file=tif_file, neuropil_roi_dir=roi_file, output_dir=output_folder)
+
+        # Re-enable and show complete
+        freeze_gui(freeze=False, status_text='Finished Neuropil Detection and stored data to disk!')
+
     root = tk.Tk()
     root.title("File Selector and Runner")
     root.geometry("600x400")
-
-    # open_button = tk.Button(root, text="Open File", command=open_file)
-    # open_button.pack(pady=10)
 
     nonlocal_file_label = tk.Label(root, text="No file selected")
     file_label = nonlocal_file_label  # Assign to the outer variable
@@ -462,6 +571,10 @@ def main():
     checkbox_var = tk.BooleanVar()  # Tracks checkbox state
     checkbox = tk.Checkbutton(row_frame, text="Correlation Map", variable=checkbox_var)
     checkbox.pack(side="left", padx=10, expand=True)
+
+    # Check Neuropil ROIs
+    neuropil_button = tk.Button(root, text="Run Neuropil Detection", command=run_neuropil)
+    neuropil_button.pack(pady=10, expand=True)
 
     status_label = tk.Label(root, text="READY", fg="blue", font=("Helvetica", 14))
     status_label.pack(pady=20, expand=True)
