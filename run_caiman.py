@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')  # Disable GUI plotting
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -5,10 +7,12 @@ import os
 import tifffile as tiff
 import time
 import yaml
+import threading
 
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
+from tkinter import ttk
 
 # CAIMAN IMPORTS
 from caiman import load, load_memmap, stop_server, load_movie_chain, concatenate
@@ -17,8 +21,6 @@ from caiman.motion_correction import MotionCorrect
 from caiman.source_extraction.cnmf import cnmf as cnmf
 from caiman.source_extraction.cnmf import params as params
 from caiman.summary_images import local_correlations_movie_offline
-# from IPython import embed
-
 
 def load_tiff_recording(file_name, flatten=False):
     all_frames = []
@@ -169,23 +171,6 @@ def source_extraction(file_name, save_dir, params_dict=None, visual_check=True, 
             save_contour_plot(cnm, Cn, f'{save_dir}/corr_contour_plot.jpg', cmap=cmap)
             save_roi_centers_plot(component_centers[good_idx], Cn, file_dir=f'{save_dir}/caiman_corr_rois_center.jpg', marker_size=30, cmap=cmap)
 
-        # # play movie with results (original, reconstructed (A·C + b), amplified residual)
-        # v = cnm.estimates.play_movie(
-        #     images,
-        #     q_min=1,
-        #     q_max=99,
-        #     include_bck=True,
-        #     magnification=3,
-        #     gain_res=1,
-        #     gain_color=1,
-        #     thr=0,
-        #     use_color=False,
-        #     display=False,
-        # )
-        # v.save(f'{save_dir}/caiman_movie.avi')
-        # print('Movie Stored to Disk')
-        # write_video_from_array(v, f'{save_dir}/movie.mp4', fps=10)
-
     # 5. Save results
     print('\n==== SAVING RESULTS =====\n')
     cnm.save(f'{save_dir}/cnmf_full_pipeline_results.hdf5')
@@ -200,10 +185,6 @@ def source_extraction(file_name, save_dir, params_dict=None, visual_check=True, 
     # raw_traces = cnm.estimates.A.T @ Yr
     C = cnm.estimates.C  # shape (n_neurons, n_frames)
     pd.DataFrame(C.T).to_csv(f"{save_dir}/caiman_ca_traces.csv", index=False)
-
-    # Export de-convolved spikes (S)
-    # S = cnm.estimates.S
-    # pd.DataFrame(S.T).to_csv(os.path.join(output_dir, "S_traces_spikes.csv"), index=False)
 
     # Export component centers (x, y)
     component_centers = cnm.estimates.center
@@ -238,6 +219,7 @@ def save_contour_plot(cnm, bg_image, file_dir, cmap):
 
 
 def motion_correction(file_name, pw_rigid, output_path, display_images=False):
+    print('\n==== RUN MOTION CORRECTION =====\n')
     # First setup some parameters for data and motion correction
     # dataset dependent parameters
     fnames = [file_name]
@@ -325,6 +307,7 @@ def motion_correction(file_name, pw_rigid, output_path, display_images=False):
 
     # Save as TIFF stack
     # output_path = f'{file_name[:-4]}_motion_corrected.tif'
+    print('\n==== STORING MOTION CORRECTED FILE TO DISK =====\n')
     tiff.imwrite(
         output_path,
         corrected_array,
@@ -341,6 +324,7 @@ def motion_correction(file_name, pw_rigid, output_path, display_images=False):
     )
 
     stop_server(dview=dview)
+    print('\n==== FINISHED MOTION CORRECTION =====\n')
 
 
 def c_viewer(cnm, tif_rec, mean_image):
@@ -438,30 +422,29 @@ def detect_neuropil_rois(file_dir, tif_file, neuropil_roi_dir, output_dir):
 
 
 def main():
-    # selected_file = ""
-    file_label = None  # Declare it here so it’s visible in nested functions
+    file_label = None
     status_label = None
+    spinner = None
 
     def freeze_gui(freeze, status_text):
         if freeze:
-            # Disable buttons and show status
-            # open_button.config(state="disabled")
             run_motion_correction_button.config(state="disabled")
             run_source_extraction_button.config(state="disabled")
             neuropil_button.config(state="disabled")
+            checkbox.config(state="disabled")
             status_label.config(text=status_text)
+            spinner.start()
         else:
-            # Re-enable and show complete
-            # open_button.config(state="normal")
             run_motion_correction_button.config(state="normal")
             run_source_extraction_button.config(state="normal")
             neuropil_button.config(state="normal")
+            checkbox.config(state="normal")
             status_label.config(text=status_text)
-            root.update_idletasks()  # Ensure it's redrawn
+            spinner.stop()
+            root.update_idletasks()
             messagebox.showinfo("Analysis", f"Finished!")
 
     def open_file(text, f_types, change_label=True):
-        # f_types = [("Text files", "*.txt"), ("All files", "*.*")]
         f = filedialog.askopenfilename(title=text, filetypes=f_types)
         if f:
             if change_label:
@@ -476,20 +459,9 @@ def main():
             messagebox.showwarning("No file", "Please select a file first.")
             return
 
-        # Disable buttons and show status
-        freeze_gui(freeze=True, status_text='')
-        root.update_idletasks()  # <- Force update to apply the GUI changes immediately
-        time.sleep(0.1)  # Just for testing
-
         freeze_gui(freeze=True, status_text='Running Motion Correction, please wait ....')
-        root.update_idletasks()  # <- Force update to apply the GUI changes immediately
-        time.sleep(0.1)  # Just for testing
-
-        # messagebox.showinfo("Analysis", f"Analysis started on:\n{selected_file}")
         output_path = f'{os.path.split(selected_file)[0]}/motion_corrected_{os.path.split(selected_file)[1]}'
         motion_correction(selected_file, pw_rigid=True, output_path=output_path, display_images=False)
-
-        # Re-enable and show complete
         freeze_gui(freeze=False, status_text='Finished Motion Correction and stored new file to disk!')
 
     def run_source_extraction():
@@ -507,19 +479,11 @@ def main():
             messagebox.showwarning("No Settings File", "ERROR: COULD NOT FIND SETTINGS FILE")
             return
 
-        # Disable buttons and show status
         freeze_gui(freeze=True, status_text='Running Cell Detection, please wait ....')
-        root.update_idletasks()  # <- Force update to apply the GUI changes immediately
-        time.sleep(0.1)  # Just for testing
-
-        # messagebox.showinfo("Analysis", f"Analysis started on:\n{selected_file}")
         output_folder = f'{os.path.split(selected_file)[0]}/caiman_output'
         os.makedirs(output_folder, exist_ok=True)
-
         corr_map = checkbox_var.get()
-        print(f'Correlation Map: {corr_map}')
         source_extraction(selected_file, output_folder, params_dict=params_dict, visual_check=True, parallel=True, corr_map=corr_map)
-        # Re-enable and show complete
         freeze_gui(freeze=False, status_text='Finished Cell Detection and stored data to disk!')
 
     def run_neuropil():
@@ -538,50 +502,51 @@ def main():
             messagebox.showwarning("No file", "Please select a file first.")
             return
 
-        # Disable buttons and show status
         freeze_gui(freeze=True, status_text='Running Neuropil Detection, please wait ....')
-        root.update_idletasks()  # <- Force update to apply the GUI changes immediately
-        time.sleep(0.1)  # Just for testing
-
         output_folder = f'{os.path.split(tif_file)[0]}/caiman_output'
         detect_neuropil_rois(file_dir=caiman_file, tif_file=tif_file, neuropil_roi_dir=roi_file, output_dir=output_folder)
-
-        # Re-enable and show complete
         freeze_gui(freeze=False, status_text='Finished Neuropil Detection and stored data to disk!')
+
+    def safe_run(func):
+        def wrapper():
+            try:
+                func()
+            except Exception as e:
+                root.after(0, lambda: messagebox.showerror("Error", str(e)))
+        threading.Thread(target=wrapper).start()
 
     root = tk.Tk()
     root.title("File Selector and Runner")
-    root.geometry("600x400")
+    root.geometry("600x450")
 
     nonlocal_file_label = tk.Label(root, text="No file selected")
-    file_label = nonlocal_file_label  # Assign to the outer variable
+    file_label = nonlocal_file_label
     file_label.pack(pady=5, expand=True)
 
-    run_motion_correction_button = tk.Button(root, text="Run Motion Correction", command=run_motion_correction)
+    run_motion_correction_button = tk.Button(root, text="Run Motion Correction", command=lambda: safe_run(run_motion_correction))
     run_motion_correction_button.pack(pady=10, expand=True)
 
-    # Frame to hold checkbox and button side by side
     row_frame = tk.Frame(root)
     row_frame.pack(pady=20, expand=True)
 
-    run_source_extraction_button = tk.Button(row_frame, text="Run Cell Detection", command=run_source_extraction)
+    run_source_extraction_button = tk.Button(row_frame, text="Run Cell Detection", command=lambda: safe_run(run_source_extraction))
     run_source_extraction_button.pack(pady=10, expand=True)
 
-    # Checkbox
-    checkbox_var = tk.BooleanVar()  # Tracks checkbox state
+    checkbox_var = tk.BooleanVar()
     checkbox = tk.Checkbutton(row_frame, text="Correlation Map", variable=checkbox_var)
     checkbox.pack(side="left", padx=10, expand=True)
 
-    # Check Neuropil ROIs
-    neuropil_button = tk.Button(root, text="Run Neuropil Detection", command=run_neuropil)
+    neuropil_button = tk.Button(root, text="Run Neuropil Detection", command=lambda: safe_run(run_neuropil))
     neuropil_button.pack(pady=10, expand=True)
 
     status_label = tk.Label(root, text="READY", fg="blue", font=("Helvetica", 14))
-    status_label.pack(pady=20, expand=True)
+    status_label.pack(pady=10, expand=True)
+
+    spinner = ttk.Progressbar(root, mode='indeterminate')
+    spinner.pack(pady=10, fill='x')
 
     root.mainloop()
 
 
 if __name__ == "__main__":
     main()
-
