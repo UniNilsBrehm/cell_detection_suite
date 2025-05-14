@@ -588,6 +588,8 @@ def main():
         threading.Thread(target=wrapper).start()
 
     root = tk.Tk()
+    blank_icon = tk.PhotoImage(width=1, height=1)  # black 1x1 px icon
+    root.iconphoto(True, blank_icon)
     root.title("File Selector and Runner")
     root.geometry("600x450")
 
