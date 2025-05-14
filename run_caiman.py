@@ -8,6 +8,8 @@ import tifffile as tiff
 import time
 import yaml
 import threading
+import logging
+import traceback
 
 import tkinter as tk
 from tkinter import filedialog
@@ -26,6 +28,14 @@ from caiman.summary_images import local_correlations_movie_offline
 # from IPython import embed
 # embed()
 # exit()
+
+# Do some logging
+logging.basicConfig(
+    filename='caiman_gui_log.txt',
+    filemode='w',  # <--- Overwrite the file at each run (otherwise set to "a")
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 def load_tiff_recording(file_name, flatten=False):
     all_frames = []
@@ -54,8 +64,8 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
 
         # Ensure at least one process is used
         n_cpus = max(1, n_cpus)
-        print(f'FOUND: {total_cpus} CPUs')
-        print(f'USING: {n_cpus} CPUs')
+        logging.info(f'FOUND: {total_cpus} CPUs')
+        logging.info(f'USING: {n_cpus} CPUs')
 
         c, dview, n_processes = setup_cluster(
             backend='multiprocessing', n_processes=n_cpus, single_thread=True
@@ -192,6 +202,7 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
         np.save(f'{save_dir}/caiman_local_correlation_map.npy', Cn)
 
     print('\n==== CAIMAN FINISHED =====\n')
+
     if parallel:
         # Stop the cluster
         stop_server(dview=dview)
@@ -479,7 +490,8 @@ def main():
             dtype = tif_file.pages[0].dtype  # e.g., dtype('uint16')
 
             if dtype == 'int16':
-                print('Tiff File is "int16" ... will convert it to "unit16" to match CAIMAN')
+                log_to_gui('Tiff File is "int16" ... will convert it to "unit16" to match CAIMAN')
+                logging.info('Converting Tiff File to uint16')
                 data = tif_file.asarray()  # This loads the image into memory
                 if data.ndim <= 2:
                     # Tifffile did only load one frame
@@ -503,14 +515,14 @@ def main():
                 return new_file
             return tif_file_dir
 
-    def freeze_gui(freeze, status_text):
+    def freeze_gui(freeze):
         if freeze:
             run_motion_correction_button.config(state="disabled")
             run_source_extraction_button.config(state="disabled")
             neuropil_button.config(state="disabled")
             checkbox_corr_map.config(state="disabled")
             checkbox_parallel.config(state="disabled")
-            status_label.config(text=status_text)
+            # status_label.config(text=status_text)
             spinner.start()
         else:
             run_motion_correction_button.config(state="normal")
@@ -518,7 +530,7 @@ def main():
             neuropil_button.config(state="normal")
             checkbox_corr_map.config(state="normal")
             checkbox_parallel.config(state="normal")
-            status_label.config(text=status_text)
+            # status_label.config(text=status_text)
             spinner.stop()
             root.update_idletasks()
             messagebox.showinfo("Analysis", f"Finished!")
@@ -535,18 +547,26 @@ def main():
     def run_motion_correction():
         selected_file = open_file(text='Select Recording File', f_types=[("tif files", "*.tif *.tiff *.TIF *.TIFF")])
         if not selected_file:
-            messagebox.showwarning("No file", "Please select a file first.")
+            # messagebox.showwarning("No file", "Please select a file first.")
+            log_to_gui("No file, Please select a file first.")
+            logging.info("No file found.")
             return
 
-        freeze_gui(freeze=True, status_text='Running Motion Correction, please wait ....')
+        log_to_gui("Running motion correction...")
+        logging.info("Motion correction started.")
+        freeze_gui(freeze=True)
         output_path = f'{os.path.split(selected_file)[0]}/motion_corrected_{os.path.split(selected_file)[1]}'
         motion_correction(selected_file, pw_rigid=True, output_path=output_path, display_images=False)
-        freeze_gui(freeze=False, status_text='Finished Motion Correction and stored new file to disk!')
+        log_to_gui("Motion Correction Finished!")
+        logging.info("Motion Correction Finished.")
+        freeze_gui(freeze=False)
 
     def run_source_extraction():
         selected_file = open_file(text='Select Recording File', f_types=[("tif files", "*.tif *.tiff *.TIF *.TIFF")])
         if not selected_file:
-            messagebox.showwarning("No file", "Please select a file first.")
+            # messagebox.showwarning("No file", "Please select a file first.")
+            log_to_gui("No file, Please select a file first.")
+            logging.info("No file found.")
             return
 
         settings_dir = 'caiman_settings.yaml'
@@ -554,11 +574,12 @@ def main():
             with open(settings_dir, 'r') as f:
                 params_dict = yaml.safe_load(f)
         except FileNotFoundError:
-            print('ERROR COULD NOT FIND SETTINGS FILE')
-            messagebox.showwarning("No Settings File", "ERROR: COULD NOT FIND SETTINGS FILE")
+            log_to_gui("ERROR: Could not find settings file.")
+            logging.info("ERROR: Could not find settings file.")
+            # messagebox.showwarning("No Settings File", "ERROR: COULD NOT FIND SETTINGS FILE")
             return
 
-        freeze_gui(freeze=True, status_text='Running Cell Detection, please wait ....')
+        freeze_gui(freeze=True)
 
         # Check Tiff File (has to match CAIMAN)
         selected_file = check_tiff_file(selected_file)
@@ -569,53 +590,87 @@ def main():
         parallel_processing = checkbox_parallel_var.get()
 
         if parallel_processing:
-            print('\n==== MODE: PARALLEL PROCESSING ==== \n')
+            # print('\n==== MODE: PARALLEL PROCESSING ==== \n')
+            log_to_gui("MODE: PARALLEL PROCESSING")
+            logging.info("MODE: PARALLEL PROCESSING")
         else:
-            print('\n==== MODE: NON-PARALLEL PROCESSING ==== \n')
+            # print('\n==== MODE: NON-PARALLEL PROCESSING ==== \n')
+            log_to_gui("MODE: NON-PARALLEL PROCESSING")
+            logging.info("MODE: NON-PARALLEL PROCESSING")
 
         if corr_map:
-            print('\n==== CORRELATION MAP SELECTED, THIS CAN EXTEND PROCESSING TIME EXTREMELY.... ==== \n')
-            print('\n==== .... MAKE SURE YOUR COMPUTER CAN HANDLE THIS ! ==== \n')
+            # print('\n==== CORRELATION MAP SELECTED, THIS CAN EXTEND PROCESSING TIME EXTREMELY.... ==== \n')
+            # print('\n==== .... MAKE SURE YOUR COMPUTER CAN HANDLE THIS ! ==== \n')
+            log_to_gui("CORRELATION MAP: TRUE - This can be computationally demanding!")
+            logging.info("CORRELATION MAP: TRUE")
 
         else:
-            print('\n==== NO CORRELATION MAP (DEFAULT) ==== \n')
+            # print('\n==== NO CORRELATION MAP (DEFAULT) ==== \n')
+            log_to_gui("CORRELATION MAP: FALSE")
+            logging.info("CORRELATION MAP: FALSE")
+
+        log_to_gui("Running Source Extraction (Cell Detection)...")
+        logging.info("Source Extraction started.")
+        log_to_gui("Parameters:")
+        log_to_gui(yaml.dump(params_dict, sort_keys=False))
+        logging.info("Parameters:")
+        logging.info(yaml.dump(params_dict, sort_keys=False))
 
         # Run Source Extraction (Cell Detection)
         source_extraction(selected_file, output_folder, params_dict=params_dict, parallel=parallel_processing, corr_map=corr_map)
 
         # Create Figures
+        log_to_gui("Creating Validation Figures...")
+        logging.info("Creating Validation Figures.")
         cnmf_dir = f'{output_folder}/cnmf_full_pipeline_results.hdf5'
         create_figures(cnmf_dir, output_folder, corr_map)
 
-        freeze_gui(freeze=False, status_text='Finished Cell Detection and stored data to disk!')
+        # Create Figures
+        log_to_gui("Source Extraction Finished!")
+        logging.info("Source Extraction Finished.")
+        freeze_gui(freeze=False)
 
     def run_neuropil():
         tif_file = open_file(text='Select Recording File', f_types=[("tif files", "*.tif *.tiff *.TIF *.TIFF")])
         if not tif_file:
-            messagebox.showwarning("No file", "Please select a file first.")
+            # messagebox.showwarning("No file", "Please select a file first.")
+            log_to_gui("ERROR: Could not find settings file.")
+            logging.info("ERROR: Could not find settings file.")
             return
 
         caiman_file = open_file(text='Select CAIMAN File', f_types=[("caiman files", "*.hdf5")])
         if not caiman_file:
-            messagebox.showwarning("No file", "Please select a file first.")
+            log_to_gui("ERROR: Could not find CAIMAN results file.")
+            logging.info("ERROR: Could not find CAIMAN results file.")
+            # messagebox.showwarning("No file", "Please select a file first.")
             return
 
         roi_file = open_file(text='Select ROI File', f_types=[("roi files", "*.roi")])
         if not roi_file:
-            messagebox.showwarning("No file", "Please select a file first.")
+            # messagebox.showwarning("No file", "Please select a file first.")
+            log_to_gui("ERROR: Could not find ROI file.")
+            logging.info("ERROR: Could not find ROI file.")
             return
 
-        freeze_gui(freeze=True, status_text='Running Neuropil Detection, please wait ....')
+        log_to_gui("Starting Neuropil Detection ...")
+        logging.info("Starting Neuropil Detection.")
+        freeze_gui(freeze=True)
         output_folder = f'{os.path.split(tif_file)[0]}/caiman_output'
         detect_neuropil_rois(file_dir=caiman_file, tif_file=tif_file, neuropil_roi_dir=roi_file, output_dir=output_folder)
-        freeze_gui(freeze=False, status_text='Finished Neuropil Detection and stored data to disk!')
+        freeze_gui(freeze=False)
+        log_to_gui("Finished Neuropil Detection.")
+        logging.info("Finished Neuropil Detection.")
 
     def safe_run(func):
         def wrapper():
             try:
                 func()
             except Exception as e:
+                tb = traceback.format_exc()
+                logging.error(tb)  # Log to file
+                root.after(0, lambda: log_to_gui(f"[ERROR]\n{tb}"))
                 root.after(0, lambda: messagebox.showerror("Error", str(e)))
+
         threading.Thread(target=wrapper).start()
 
     root = tk.Tk()
@@ -648,11 +703,29 @@ def main():
     neuropil_button = tk.Button(root, text="Run Neuropil Detection", command=lambda: safe_run(run_neuropil))
     neuropil_button.pack(pady=10, expand=True)
 
-    status_label = tk.Label(root, text="READY", fg="blue", font=("Helvetica", 14))
-    status_label.pack(pady=10, expand=True)
+    # status_label = tk.Label(root, text="READY", fg="blue", font=("Helvetica", 14))
+    # status_label.pack(pady=10, expand=True)
 
     spinner = ttk.Progressbar(root, mode='indeterminate')
     spinner.pack(pady=10, fill='x')
+
+    # === LOGGING TEXT BOX ===
+    log_text = tk.Text(root, height=8, wrap='word', state='disabled', bg='#f0f0f0')
+    log_text.pack(pady=10, fill='both', expand=True)
+
+    def log_to_gui(message):
+        log_text.config(state='normal')
+        log_text.insert(tk.END, message + '\n')
+        log_text.see(tk.END)
+        log_text.config(state='disabled')
+
+    def clear_log():
+        log_text.config(state='normal')
+        log_text.delete('1.0', tk.END)
+        log_text.config(state='disabled')
+
+    clear_log_button = tk.Button(root, text="Clear Log", command=clear_log)
+    clear_log_button.pack(pady=5)
 
     root.mainloop()
 

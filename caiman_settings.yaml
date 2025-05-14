@@ -1,4 +1,5 @@
 # Never use tabs, always use space 4 spaces instead!
+# Disable parameter: null
 data:
   fr: 3                    # Frame rate (frames per second)
   decay_time: 2            # Decay time of calcium indicator
@@ -6,8 +7,8 @@ data:
 init:
   K: 20                    # Expected number of neurons per patch
   gSig:                    # Expected half-size of neurons in pixels (height, width)
-    - 8
-    - 8
+    - 5
+    - 5
   method_init: greedy_roi  # Initialization method: 'greedy_roi' or 'corr_pnr'
   min_corr: 0.7            # Minimum local correlation for seed
   min_pnr: 10              # Minimum peak-to-noise ratio for seed
@@ -19,7 +20,7 @@ init:
 online:
   ring_CNN: false          # Use CNMF-E Ring Background Model (False = global low-rank background)
 
-patch:
+patch:                     # Patching is not supported so far, so rf and stride have to be "null"!
   n_processes: null        # Number of parallel processes (null = auto)
   rf: null                 # Half size of each patch (≥ 2× gSig)
   stride: null             # Overlap between patches (typically rf/2)
