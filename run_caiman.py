@@ -15,6 +15,7 @@ from tkinter import messagebox
 from tkinter import ttk
 
 # CAIMAN IMPORTS
+import multiprocessing
 from caiman import load, load_memmap, stop_server, load_movie_chain, concatenate
 from caiman.cluster import setup_cluster
 from caiman.motion_correction import MotionCorrect
@@ -47,8 +48,17 @@ def load_tiff_recording(file_name, flatten=False):
 def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr_map=False):
     # start a cluster
     if parallel:
+        # Use all but one CPU
+        total_cpus = multiprocessing.cpu_count()
+        n_cpus = total_cpus - 1
+
+        # Ensure at least one process is used
+        n_cpus = max(1, n_cpus)
+        print(f'FOUND: {total_cpus} CPUs')
+        print(f'USING: {n_cpus} CPUs')
+
         c, dview, n_processes = setup_cluster(
-            backend='multiprocessing', n_processes=None, single_thread=False
+            backend='multiprocessing', n_processes=n_cpus, single_thread=True
         )
     else:
         dview = None
@@ -146,8 +156,6 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
     # Save manual curation
     # cnm.save(f'{save_dir}/cnmf_curated.hdf5')
     # Save the movie overlay
-    if corr_map:
-        np.save(f'{save_dir}/caiman_local_correlation_map.npy', Cn)
 
     # 6. Save ROI Traces
     # Export de-noised traces (C)
@@ -166,6 +174,22 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
     component_centers = cnm.estimates.center
     df_centers = pd.DataFrame(component_centers, columns=["y", "x"])  # CaImAn uses (row, col)
     df_centers.to_csv(f'{save_dir}/caiman_roi_centers.csv', index=False)
+
+    if corr_map:
+        print('\n==== COMPUTING CORRELATION MAP, THIS CAN TAKE SOME TIME .... =====\n')
+        # Compute Pixel Correlation Matrix (px and its 8 neighbors)
+        lc = local_correlations_movie_offline(
+            f_names[0],
+            remove_baseline=True,
+            swap_dim=False,
+            window=500,
+            stride=8,
+            winSize_baseline=200,
+            quantil_min_baseline=10,
+            dview=dview
+        )
+        Cn = lc.max(axis=0)
+        np.save(f'{save_dir}/caiman_local_correlation_map.npy', Cn)
 
     print('\n==== CAIMAN FINISHED =====\n')
     if parallel:
@@ -548,6 +572,13 @@ def main():
             print('\n==== MODE: PARALLEL PROCESSING ==== \n')
         else:
             print('\n==== MODE: NON-PARALLEL PROCESSING ==== \n')
+
+        if corr_map:
+            print('\n==== CORRELATION MAP SELECTED, THIS CAN EXTEND PROCESSING TIME EXTREMELY.... ==== \n')
+            print('\n==== .... MAKE SURE YOUR COMPUTER CAN HANDLE THIS ! ==== \n')
+
+        else:
+            print('\n==== NO CORRELATION MAP (DEFAULT) ==== \n')
 
         # Run Source Extraction (Cell Detection)
         source_extraction(selected_file, output_folder, params_dict=params_dict, parallel=parallel_processing, corr_map=corr_map)
