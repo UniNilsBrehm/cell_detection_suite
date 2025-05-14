@@ -4,10 +4,10 @@ data:
   decay_time: 2            # Decay time of calcium indicator
 
 init:
-  K: 10                    # Expected number of neurons per patch
+  K: 20                    # Expected number of neurons per patch
   gSig:                    # Expected half-size of neurons in pixels (height, width)
-    - 12
-    - 12
+    - 8
+    - 8
   method_init: greedy_roi  # Initialization method: 'greedy_roi' or 'corr_pnr'
   min_corr: 0.7            # Minimum local correlation for seed
   min_pnr: 10              # Minimum peak-to-noise ratio for seed
