@@ -25,10 +25,6 @@ from caiman.source_extraction.cnmf import cnmf as cnmf
 from caiman.source_extraction.cnmf import params as params
 from caiman.summary_images import local_correlations_movie_offline
 
-# from IPython import embed
-# embed()
-# exit()
-
 # Do some logging
 logging.basicConfig(
     filename='caiman_gui_log.txt',
@@ -53,7 +49,6 @@ def load_tiff_recording(file_name, flatten=False):
         frames = np.array(all_frames)
 
     return frames
-
 
 def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr_map=False):
     # start a cluster
@@ -83,51 +78,6 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
     if params_dict is None:
         print('ERROR: COULD NOT FIND PARAMETER SETTINGS')
         return
-        # # SETTINGS
-        # params_dict = {
-        #     'data': {
-        #         'fnames': f_names,
-        #         'fr': 3,
-        #         'decay_time': 5
-        #     },
-        #     'init': {
-        #         'K': 100,  # expected # of neurons per patch
-        #         'gSig': [2, 2],  # expected half size of neurons in px
-        #         # 'method_init': 'corr_pnr',   # correlation-based initialization, patching should be avoided here
-        #         'method_init': 'greedy_roi',
-        #         'min_corr': 0.8,  # min local correlation for seed
-        #         'min_pnr': 10,  # min peak-to-noise ratio for seed
-        #         'ssub': 2,  # spatial subsampling during initialization (use every 2nd pixel → half resolution)
-        #         'tsub': 2,   # temporal subsampling during initialization (average every 2 frames)
-        #         'nb': 2,  # global background order
-        #         'normalize_init': True,  # z score data, do not use with CNMF-E Background Ring Model
-        #     },
-        #     'online': {
-        #         'ring_CNN': False  # CNMF-E Background Ring Model, if False, use global low-rank background modeling
-        #     },
-        #     'patch': {
-        #         'n_processes': None,
-        #         'rf': None,  # half size of each patch (should be ≥ 2× gSig)
-        #         'stride': None  # overlap between patches ( 1- stride/rf), (typically 50% of rf)
-        #         # 'rf': 16,  # half size of each patch (should be ≥ 2× gSig)
-        #         # 'stride': 8  # overlap between patches ( 1- stride/rf), (typically 50% of rf)
-        #     },
-        #     'merging': {
-        #         'merge_thr': 0.8  # merging threshold, max correlation allowed
-        #     },
-        #     'temporal': {
-        #         'p': 1,  # order of the autoregressive system
-        #     },
-        #     'quality': {
-        #         'SNR_lowest': 1.0,  # minimum required trace SNR. Traces with SNR below this will get rejected
-        #         'min_SNR': 2.0,  # peak SNR for accepted components (if above this, accept)
-        #         'rval_lowest': 0.2,  # minimum required space correlation. Components with correlation below this will get rejected
-        #         'rval_thr': 0.8,  # spatial footprint consistency: space correlation threshold (if above this, accept)
-        #         'use_cnn': True,  # use the CNN classifier (prob. of component being a neuron)
-        #         'min_cnn_thr': 0.8,   # Only components with CNN scores ≥ thr are accepted as likely real neurons.
-        #         'cnn_lowest': 0.1  # Components scoring < lowest are considered garbage and won’t be touched even during manual curation or re-evaluation.
-        #     },
-        # }
     else:
         params_dict['data']['fnames'] = f_names
 
@@ -154,8 +104,6 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
     # load memory mapped file
     Yr, dims, T = load_memmap(cnm.mmap_file)
     images = np.reshape(Yr.T, [T] + list(dims), order='F')
-    mean_image = np.mean(images, axis=0)
-    # sd_image = np.std(images, axis=0)
 
     print("Dims:", dims, "Frames:", T)
     cnm.estimates.evaluate_components(images, cnm.params, dview=dview)
@@ -163,9 +111,6 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
     # 5. Save results
     print('\n==== SAVING RESULTS =====\n')
     cnm.save(f'{save_dir}/cnmf_full_pipeline_results.hdf5')
-    # Save manual curation
-    # cnm.save(f'{save_dir}/cnmf_curated.hdf5')
-    # Save the movie overlay
 
     # 6. Save ROI Traces
     # Export de-noised traces (C)
@@ -174,16 +119,24 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
 
     # Subset traces
     accepted_idx = cnm.estimates.idx_components
+    rejected_idx = cnm.estimates.idx_components_bad
     C_accepted = cnm.estimates.C[accepted_idx, :]  # shape: (n_accepted, n_frames)
-    col_labels = accepted_idx.astype('str')
+    C_rejected = cnm.estimates.C[rejected_idx, :]
 
-    pd.DataFrame(C.T).to_csv(f"{save_dir}/caiman_ca_traces.csv", index=False)
-    pd.DataFrame(C_accepted.T, columns=col_labels).to_csv(f"{save_dir}/caiman_accepted_ca_traces.csv", index=False)
+    # Generate column names: cell_1, cell_2, ..., cell_n
+    column_names = [f"cell_{i + 1}" for i in range(len(C_accepted))]
+    column_names_rejected = [f"cell_{i + 1}" for i in range(len(C_rejected))]
+
+    pd.DataFrame(C_accepted.T, columns=column_names).to_csv(f"{save_dir}/caiman_accepted_ca_traces.csv", index=False)
+    pd.DataFrame(C_rejected.T, columns=column_names_rejected).to_csv(f"{save_dir}/caiman_rejected_ca_traces.csv", index=False)
 
     # Export component centers (x, y)
     component_centers = cnm.estimates.center
-    df_centers = pd.DataFrame(component_centers, columns=["y", "x"])  # CaImAn uses (row, col)
-    df_centers.to_csv(f'{save_dir}/caiman_roi_centers.csv', index=False)
+    df_centers_accepted = pd.DataFrame(component_centers[accepted_idx, :], columns=["y", "x"])  # CaImAn uses (row, col)
+    df_centers_rejected = pd.DataFrame(component_centers[rejected_idx, :], columns=["y", "x"])  # CaImAn uses (row, col)
+
+    df_centers_accepted.to_csv(f'{save_dir}/caiman_accepted_roi_centers.csv', index=False)
+    df_centers_rejected.to_csv(f'{save_dir}/caiman_rejected_roi_centers.csv', index=False)
 
     if corr_map:
         print('\n==== COMPUTING CORRELATION MAP, THIS CAN TAKE SOME TIME .... =====\n')
@@ -207,7 +160,6 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
         # Stop the cluster
         stop_server(dview=dview)
 
-
 def save_roi_centers_plot(centers, bg_image, file_dir, marker_size=20, cmap='gray'):
     vmin = np.percentile(bg_image, 1)  # lower 1st percentile
     vmax = np.percentile(bg_image, 99)  # upper 99th percentile
@@ -219,7 +171,6 @@ def save_roi_centers_plot(centers, bg_image, file_dir, marker_size=20, cmap='gra
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)  # remove padding/margins
     plt.savefig(file_dir, dpi=300, bbox_inches='tight', pad_inches=0)
     plt.close(fig)
-
 
 def save_contour_plot(cnm, bg_image, file_dir, cmap):
     vmin = np.percentile(bg_image, 1)  # lower 1st percentile
@@ -245,7 +196,6 @@ def save_contour_plot(cnm, bg_image, file_dir, cmap):
     # plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.savefig(file_dir, dpi=300, bbox_inches='tight', pad_inches=0.1)
     plt.close(fig)
-
 
 def motion_correction(file_name, pw_rigid, output_path, display_images=False):
     print('\n==== RUN MOTION CORRECTION =====\n')
@@ -355,10 +305,8 @@ def motion_correction(file_name, pw_rigid, output_path, display_images=False):
     stop_server(dview=dview)
     print('\n==== FINISHED MOTION CORRECTION =====\n')
 
-
 def c_viewer(cnm, tif_rec, mean_image):
     cnm.estimates.view_components(tif_rec, idx=cnm.estimates.idx_components, img=mean_image)
-
 
 def detect_neuropil_rois(file_dir, tif_file, neuropil_roi_dir, output_dir):
     from caiman.source_extraction.cnmf.cnmf import load_CNMF
@@ -482,7 +430,6 @@ def create_figures(cnmf_path, save_dir, corr_map):
 
 def main():
     file_label = None
-    status_label = None
     spinner = None
 
     def check_tiff_file(tif_file_dir):
@@ -702,9 +649,6 @@ def main():
 
     neuropil_button = tk.Button(root, text="Run Neuropil Detection", command=lambda: safe_run(run_neuropil))
     neuropil_button.pack(pady=10, expand=True)
-
-    # status_label = tk.Label(root, text="READY", fg="blue", font=("Helvetica", 14))
-    # status_label.pack(pady=10, expand=True)
 
     spinner = ttk.Progressbar(root, mode='indeterminate')
     spinner.pack(pady=10, fill='x')
