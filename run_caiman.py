@@ -50,6 +50,7 @@ def load_tiff_recording(file_name, flatten=False):
 
     return frames
 
+
 def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr_map=False):
     # start a cluster
     if parallel:
@@ -72,19 +73,20 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
     # File Name
     f_names = [file_name]
     if len(f_names) <= 0:
-        print('\n==== ERROR: No tiff file recording found =====\n')
-        return
+        logging.exception('No tiff file recording found')
+        return False
 
     if params_dict is None:
-        print('ERROR: COULD NOT FIND PARAMETER SETTINGS')
-        return
+        logging.exception('COULD NOT FIND PARAMETER SETTINGS')
+
+        return False
     else:
         params_dict['data']['fnames'] = f_names
 
     opts = params.CNMFParams(params_dict=params_dict)
 
     # 2. Run full CNMF pipeline
-    print('\n==== RUN CNMF =====\n')
+    logging.info('==== RUN CNMF =====')
     cnm = cnmf.CNMF(n_processes=n_processes, params=opts, dview=dview)
     cnm = cnm.fit_file()
 
@@ -96,26 +98,31 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
     #           and filter out active processes)
     # A component has to exceed ALL low thresholds as well as ONE high threshold to be accepted.
 
-    print('\n==== EVALUATING COMPONENTS =====\n')
+    logging.info('Start EVALUATING COMPONENTS')
     if cnm.estimates.A.shape[-1] <= 0:
-        print('\n==== WARNING: NO COMPONENTS FOUND =====\n')
-        exit()
+        logging.exception("NO COMPONENTS FOUND")
+        return False
 
     # load memory mapped file
     Yr, dims, T = load_memmap(cnm.mmap_file)
     images = np.reshape(Yr.T, [T] + list(dims), order='F')
 
-    print("Dims:", dims, "Frames:", T)
-    cnm.estimates.evaluate_components(images, cnm.params, dview=dview)
+    try:
+        cnm.estimates.evaluate_components(images, cnm.params, dview=dview)
+    except Exception as e:
+        logging.exception("Component evaluation error: This usually means that some components are malformed or cropped outside the image bounds.")
+        logging.info(f"{type(e).__name__}: {e}")
+        logging.info("")
+        return False
 
     # 5. Save results
-    print('\n==== SAVING RESULTS =====\n')
+    logging.info("Saving Results")
     cnm.save(f'{save_dir}/cnmf_full_pipeline_results.hdf5')
 
     # 6. Save ROI Traces
     # Export de-noised traces (C)
     # raw_traces = cnm.estimates.A.T @ Yr
-    C = cnm.estimates.C  # shape (n_neurons, n_frames)
+    # C = cnm.estimates.C  # shape (n_neurons, n_frames)
 
     # Subset traces
     accepted_idx = cnm.estimates.idx_components
@@ -139,7 +146,7 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
     df_centers_rejected.to_csv(f'{save_dir}/caiman_rejected_roi_centers.csv', index=False)
 
     if corr_map:
-        print('\n==== COMPUTING CORRELATION MAP, THIS CAN TAKE SOME TIME .... =====\n')
+        logging.info("Computing Correlation Map")
         # Compute Pixel Correlation Matrix (px and its 8 neighbors)
         lc = local_correlations_movie_offline(
             f_names[0],
@@ -154,11 +161,14 @@ def source_extraction(file_name, save_dir, params_dict=None, parallel=True, corr
         Cn = lc.max(axis=0)
         np.save(f'{save_dir}/caiman_local_correlation_map.npy', Cn)
 
-    print('\n==== CAIMAN FINISHED =====\n')
+    logging.info("CAIMAN FINISHED")
 
     if parallel:
         # Stop the cluster
         stop_server(dview=dview)
+
+    return True
+
 
 def save_roi_centers_plot(centers, bg_image, file_dir, marker_size=20, cmap='gray'):
     vmin = np.percentile(bg_image, 1)  # lower 1st percentile
@@ -196,6 +206,7 @@ def save_contour_plot(cnm, bg_image, file_dir, cmap):
     # plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     plt.savefig(file_dir, dpi=300, bbox_inches='tight', pad_inches=0.1)
     plt.close(fig)
+
 
 def motion_correction(file_name, pw_rigid, output_path, display_images=False):
     print('\n==== RUN MOTION CORRECTION =====\n')
@@ -397,6 +408,7 @@ def detect_neuropil_rois(file_dir, tif_file, neuropil_roi_dir, output_dir):
     df_centers_inside.to_csv(f'{output_dir}/neuropil_caiman_roi_centers.csv', index=False)
     df_centers_outside .to_csv(f'{output_dir}/cells_caiman_roi_centers.csv', index=False)
 
+
 def create_figures(cnmf_path, save_dir, corr_map):
     from caiman.source_extraction.cnmf.cnmf import load_CNMF
     plt.ioff()  # Turn off interactive mode
@@ -515,14 +527,13 @@ def main():
             log_to_gui("No file, Please select a file first.")
             logging.info("No file found.")
             return
-
-        settings_dir = 'caiman_settings.yaml'
         try:
-            with open(settings_dir, 'r') as f:
-                params_dict = yaml.safe_load(f)
-        except FileNotFoundError:
-            log_to_gui("ERROR: Could not find settings file.")
-            logging.info("ERROR: Could not find settings file.")
+            from caiman_config import CONFIG as PARAMS_DICT
+            log_to_gui("Found Config file (caiman_config.py).")
+            logging.info("Found Config file (caiman_config.py).")
+        except ImportError:
+            log_to_gui("ERROR: Could not find 'caiman_config.py' file.")
+            logging.info("ERROR: Could not find 'caiman_config.py' file.")
             # messagebox.showwarning("No Settings File", "ERROR: COULD NOT FIND SETTINGS FILE")
             return
 
@@ -558,24 +569,25 @@ def main():
 
         log_to_gui("Running Source Extraction (Cell Detection)...")
         logging.info("Source Extraction started.")
-        log_to_gui("Parameters:")
-        log_to_gui(yaml.dump(params_dict, sort_keys=False))
-        logging.info("Parameters:")
-        logging.info(yaml.dump(params_dict, sort_keys=False))
 
         # Run Source Extraction (Cell Detection)
-        source_extraction(selected_file, output_folder, params_dict=params_dict, parallel=parallel_processing, corr_map=corr_map)
+        check = source_extraction(selected_file, output_folder, params_dict=PARAMS_DICT, parallel=parallel_processing, corr_map=corr_map)
 
-        # Create Figures
-        log_to_gui("Creating Validation Figures...")
-        logging.info("Creating Validation Figures.")
-        cnmf_dir = f'{output_folder}/cnmf_full_pipeline_results.hdf5'
-        create_figures(cnmf_dir, output_folder, corr_map)
+        if check:
+            # Create Figures
+            log_to_gui("Creating Validation Figures...")
+            logging.info("Creating Validation Figures.")
+            cnmf_dir = f'{output_folder}/cnmf_full_pipeline_results.hdf5'
+            create_figures(cnmf_dir, output_folder, corr_map)
 
-        # Create Figures
-        log_to_gui("Source Extraction Finished!")
-        logging.info("Source Extraction Finished.")
-        freeze_gui(freeze=False)
+            # Create Figures
+            log_to_gui("Source Extraction Finished!")
+            logging.info("Source Extraction Finished.")
+            freeze_gui(freeze=False)
+        else:
+            log_to_gui("Source Extraction Failed!")
+            logging.info("Source Extraction Failed!")
+            raise Exception("Source Extraction Failed!")
 
     def run_neuropil():
         tif_file = open_file(text='Select Recording File', f_types=[("tif files", "*.tif *.tiff *.TIF *.TIFF")])
@@ -614,9 +626,10 @@ def main():
                 func()
             except Exception as e:
                 tb = traceback.format_exc()
-                logging.error(tb)  # Log to file
+                logging.error(tb)
                 root.after(0, lambda: log_to_gui(f"[ERROR]\n{tb}"))
                 root.after(0, lambda: messagebox.showerror("Error", str(e)))
+                root.after(0, lambda: freeze_gui(False))
 
         threading.Thread(target=wrapper).start()
 
