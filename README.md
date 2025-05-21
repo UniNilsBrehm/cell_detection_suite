@@ -117,13 +117,16 @@ To run the caiman automated cell detection and source extractions (signals) pres
 It will ask you to select a file. You can follow the progress in the Log Panel at the bottom. The resulting data files
 and figures will be stored in the same directory as your original recording into a folder called "caiman_output".
 
-Options:
-Correlation map: if checked it will compute a 8-neighbour pixel-wise correlation map of activity. This is only used for
+**Checker Box Options:**
+
+Correlation map: 
+if checked it will compute a 8-neighbour pixel-wise correlation map of activity. This is only used for
 visualization later on. Beware that this can be quite demanding on your computer (performance-wise).
 
 Parallel: if checked it will use the parallel processing method in caiman
 
-Settings:
+**Caiman Settings**
+
 Settings can be changed in the "caiman_config.py". It is essential just a dictionary containing the basic settings for
 caiman. Just open this file in any editor and make some changes. Save it and restart the "cell_detection_suite".
 For more information see the caiman docs (https://caiman.readthedocs.io/en/latest/).
