@@ -33,6 +33,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+
 def load_tiff_recording(file_name, flatten=False):
     all_frames = []
 
@@ -182,6 +183,7 @@ def save_roi_centers_plot(centers, bg_image, file_dir, marker_size=20, cmap='gra
     plt.savefig(file_dir, dpi=300, bbox_inches='tight', pad_inches=0)
     plt.close(fig)
 
+
 def save_contour_plot(cnm, bg_image, file_dir, cmap):
     vmin = np.percentile(bg_image, 1)  # lower 1st percentile
     vmax = np.percentile(bg_image, 99)  # upper 99th percentile
@@ -316,18 +318,15 @@ def motion_correction(file_name, pw_rigid, output_path, display_images=False):
     stop_server(dview=dview)
     print('\n==== FINISHED MOTION CORRECTION =====\n')
 
+
 def c_viewer(cnm, tif_rec, mean_image):
     cnm.estimates.view_components(tif_rec, idx=cnm.estimates.idx_components, img=mean_image)
 
-def detect_neuropil_rois(file_dir, tif_file, neuropil_roi_dir, output_dir):
+
+def detect_area_rois(file_dir, tif_file, neuropil_roi_dir, output_dir):
     from caiman.source_extraction.cnmf.cnmf import load_CNMF
     import read_roi
     from matplotlib.path import Path
-
-    # file_dir = f'{sw_dir}/caiman_output/cnmf_full_pipeline_results.hdf5'
-    # tif_file_dir = f'{sw_dir}/rec/'
-    # tif_file = f'{tif_file_dir}/{os.listdir(tif_file_dir)[0]}'
-    # neuropil_roi_dir = f'{sw_dir}/neuropil.roi'
 
     # Load Data
     cnm = load_CNMF(file_dir)
@@ -387,26 +386,25 @@ def detect_neuropil_rois(file_dir, tif_file, neuropil_roi_dir, output_dir):
     ax.axis('off')
 
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/neuropil_detection.jpg', dpi=300)
+    plt.savefig(f'{output_dir}/area_detection.jpg', dpi=300)
     plt.close(fig)
 
     # Get accepted components
-    # A_accepted = cnm.estimates.A[:, idx_components]
     C_accepted = cnm.estimates.C[idx_components]
+    column_names = np.array([f"cell_{i + 1}" for i in range(len(C_accepted))])
 
     # Separate traces
     C_inside = C_accepted[inside_mask, :]  # Traces for components inside neuropil
     C_outside = C_accepted[~inside_mask, :]  # Traces for components outside neuropil
 
-    # pd.DataFrame(C_accepted.T).to_csv(f"{sw_dir}/caiman_output/accepted_caiman_ca_traces.csv", index=False)
-    pd.DataFrame(C_inside.T).to_csv(f"{output_dir}/neuropil_caiman_ca_traces.csv", index=False)
-    pd.DataFrame(C_outside.T).to_csv(f"{output_dir}/cells_caiman_ca_traces.csv", index=False)
+    pd.DataFrame(C_inside.T, columns=column_names[inside_mask]).to_csv(f"{output_dir}/inside_caiman_ca_traces.csv", index=False)
+    pd.DataFrame(C_outside.T, columns=column_names[~inside_mask]).to_csv(f"{output_dir}/outside_caiman_ca_traces.csv", index=False)
 
     # Export component centers (x, y)
     df_centers_inside = pd.DataFrame(component_centers[inside_mask, :], columns=["y", "x"])
     df_centers_outside = pd.DataFrame(component_centers[~inside_mask, :], columns=["y", "x"])
-    df_centers_inside.to_csv(f'{output_dir}/neuropil_caiman_roi_centers.csv', index=False)
-    df_centers_outside .to_csv(f'{output_dir}/cells_caiman_roi_centers.csv', index=False)
+    df_centers_inside.to_csv(f'{output_dir}/inside_caiman_roi_centers.csv', index=False)
+    df_centers_outside .to_csv(f'{output_dir}/outside_caiman_roi_centers.csv', index=False)
 
 
 def create_figures(cnmf_path, save_dir, corr_map):
@@ -589,7 +587,7 @@ def main():
             logging.info("Source Extraction Failed!")
             raise Exception("Source Extraction Failed!")
 
-    def run_neuropil():
+    def run_area_detection():
         tif_file = open_file(text='Select Recording File', f_types=[("tif files", "*.tif *.tiff *.TIF *.TIFF")])
         if not tif_file:
             # messagebox.showwarning("No file", "Please select a file first.")
@@ -615,7 +613,7 @@ def main():
         logging.info("Starting Neuropil Detection.")
         freeze_gui(freeze=True)
         output_folder = f'{os.path.split(tif_file)[0]}/caiman_output'
-        detect_neuropil_rois(file_dir=caiman_file, tif_file=tif_file, neuropil_roi_dir=roi_file, output_dir=output_folder)
+        detect_area_rois(file_dir=caiman_file, tif_file=tif_file, neuropil_roi_dir=roi_file, output_dir=output_folder)
         freeze_gui(freeze=False)
         log_to_gui("Finished Neuropil Detection.")
         logging.info("Finished Neuropil Detection.")
@@ -637,7 +635,7 @@ def main():
     blank_icon = tk.PhotoImage(width=1, height=1)  # black 1x1 px icon
     root.iconphoto(True, blank_icon)
     root.title("File Selector and Runner")
-    root.geometry("600x450")
+    root.geometry("720x480")
 
     nonlocal_file_label = tk.Label(root, text="No file selected")
     file_label = nonlocal_file_label
@@ -660,7 +658,7 @@ def main():
     checkbox_parallel = tk.Checkbutton(row_frame, text="Parallel", variable=checkbox_parallel_var)
     checkbox_parallel.pack(side="left", padx=10, expand=True)
 
-    neuropil_button = tk.Button(root, text="Run Neuropil Detection", command=lambda: safe_run(run_neuropil))
+    neuropil_button = tk.Button(root, text="Run Neuropil Detection", command=lambda: safe_run(run_area_detection))
     neuropil_button.pack(pady=10, expand=True)
 
     spinner = ttk.Progressbar(root, mode='indeterminate')
@@ -684,6 +682,7 @@ def main():
     clear_log_button = tk.Button(root, text="Clear Log", command=clear_log)
     clear_log_button.pack(pady=5)
 
+    log_to_gui('Cell Detection Suite is ready!')
     root.mainloop()
 
 
