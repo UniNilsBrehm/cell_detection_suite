@@ -174,8 +174,13 @@ The "cell_detection_suite" is based on the CAIMAN package. For more information 
 
 [Giovannucci, Andrea, et al. "CaImAn an open source tool for scalable calcium imaging data analysis." elife 8 (2019): e38173]( https://doi.org/10.7554/eLife.38173 )
 
-          
+
+---
+
+If you are looking for a simple to use Data Viewer for your Data Traces check out *RoiBaView*.
+
+https://uninilsbrehm.github.io/roibaview/
     
 ---
-### ----------  
+###
 Nils Brehm - 2025
