@@ -15,11 +15,6 @@ from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import ttk
 
-# ------------------------------------------------------------------------------------------------------------------
-# Display Please Wait for Imports
-print('STARTING CELL DETECTION SUITE ...')
-# ------------------------------------------------------------------------------------------------------------------
-
 # CAIMAN IMPORTS
 import multiprocessing
 from caiman import load, load_memmap, stop_server, load_movie_chain, concatenate
@@ -229,7 +224,6 @@ def save_contour_plot(cnm, bg_image, file_dir, cmap):
 
 
 def motion_correction(file_name, pw_rigid, output_path, display_images=False):
-    print('\n==== RUN MOTION CORRECTION =====\n')
     # First setup some parameters for data and motion correction
     # dataset dependent parameters
     fnames = [file_name]
@@ -318,7 +312,6 @@ def motion_correction(file_name, pw_rigid, output_path, display_images=False):
 
     # Save as TIFF stack
     # output_path = f'{file_name[:-4]}_motion_corrected.tif'
-    print('\n==== STORING MOTION CORRECTED FILE TO DISK =====\n')
     tiff.imwrite(
         output_path,
         corrected_array,
@@ -335,7 +328,6 @@ def motion_correction(file_name, pw_rigid, output_path, display_images=False):
     )
 
     stop_server(dview=dview)
-    print('\n==== FINISHED MOTION CORRECTION =====\n')
 
 
 def c_viewer(cnm, tif_rec, mean_image):
@@ -467,8 +459,8 @@ def main():
         temp_dir = os.path.join(caiman_datadir(), 'temp')
         if os.path.exists(temp_dir):
             clear_folder(temp_dir)
-            log_to_gui("Cache (temp data) cleared")
-            logging.info("Cache (temp data) cleared")
+            log_to_gui(f"Cache (temp data) cleared ({temp_dir})")
+            logging.info(f"Cache (temp data) cleared ({temp_dir})")
 
     def check_tiff_file(tif_file_dir):
         with tiff.TiffFile(tif_file_dir) as tif_file:
