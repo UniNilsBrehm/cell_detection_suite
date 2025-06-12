@@ -4,9 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import os
+import shutil
 import tifffile as tiff
-import time
-import yaml
 import threading
 import logging
 import traceback
@@ -16,6 +15,11 @@ from tkinter import filedialog
 from tkinter import messagebox
 from tkinter import ttk
 
+# ------------------------------------------------------------------------------------------------------------------
+# Display Please Wait for Imports
+print('STARTING CELL DETECTION SUITE ...')
+# ------------------------------------------------------------------------------------------------------------------
+
 # CAIMAN IMPORTS
 import multiprocessing
 from caiman import load, load_memmap, stop_server, load_movie_chain, concatenate
@@ -24,6 +28,8 @@ from caiman.motion_correction import MotionCorrect
 from caiman.source_extraction.cnmf import cnmf as cnmf
 from caiman.source_extraction.cnmf import params as params
 from caiman.summary_images import local_correlations_movie_offline
+from caiman.paths import caiman_datadir
+
 
 # Do some logging
 logging.basicConfig(
@@ -32,6 +38,18 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+
+def clear_folder(folder_path):
+    for filename in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.remove(file_path)  # remove file or link
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)  # remove folder
+        except Exception as e:
+            print(f"Failed to delete {file_path}. Reason: {e}")
 
 
 def load_tiff_recording(file_name, flatten=False):
@@ -274,6 +292,7 @@ def motion_correction(file_name, pw_rigid, output_path, display_images=False):
     # MOTION CORRECTION
     # first we create a motion correction object with the specified parameters
     mc = MotionCorrect(fnames, dview=dview, **opts.get_group('motion'))
+
     # note that the file is not loaded in memory
 
     # Run motion correction using NoRMCorre
@@ -438,9 +457,18 @@ def create_figures(cnmf_path, save_dir, corr_map):
         save_roi_centers_plot(component_centers[good_idx], Cn, file_dir=f'{save_dir}/caiman_corr_rois_center.jpg',
                               marker_size=30, cmap=cmap)
 
+
 def main():
     file_label = None
     spinner = None
+
+    def clear_temp_data():
+        # Clean the entire caiman temp directory
+        temp_dir = os.path.join(caiman_datadir(), 'temp')
+        if os.path.exists(temp_dir):
+            clear_folder(temp_dir)
+            log_to_gui("Cache (temp data) cleared")
+            logging.info("Cache (temp data) cleared")
 
     def check_tiff_file(tif_file_dir):
         with tiff.TiffFile(tif_file_dir) as tif_file:
@@ -477,6 +505,7 @@ def main():
             run_motion_correction_button.config(state="disabled")
             run_source_extraction_button.config(state="disabled")
             neuropil_button.config(state="disabled")
+            clear_temp_button.config(state="disabled")
             checkbox_corr_map.config(state="disabled")
             checkbox_parallel.config(state="disabled")
             # status_label.config(text=status_text)
@@ -485,6 +514,7 @@ def main():
             run_motion_correction_button.config(state="normal")
             run_source_extraction_button.config(state="normal")
             neuropil_button.config(state="normal")
+            clear_temp_button.config(state="normal")
             checkbox_corr_map.config(state="normal")
             checkbox_parallel.config(state="normal")
             # status_label.config(text=status_text)
@@ -660,6 +690,9 @@ def main():
 
     neuropil_button = tk.Button(root, text="Run Neuropil Detection", command=lambda: safe_run(run_area_detection))
     neuropil_button.pack(pady=10, expand=True)
+
+    clear_temp_button = tk.Button(root, text="Clear Cache", command=clear_temp_data)
+    clear_temp_button.pack(pady=10, expand=True)
 
     spinner = ttk.Progressbar(root, mode='indeterminate')
     spinner.pack(pady=10, fill='x')
